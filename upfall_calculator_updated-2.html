@@ -1,0 +1,231 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hydraloop Upfall Shower Savings Calculator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    input[type="number"], select {
+      border: 1px solid #d1d5db;
+      border-radius: 0.375rem;
+      padding: 0.5rem;
+      width: 100%;
+    }
+    input[type="number"]:focus, select:focus {
+      outline: none;
+      ring: 2px;
+      ring-color: #3b82f6;
+    }
+  </style>
+</head>
+<body class="bg-gray-100 font-sans">
+  <div class="container mx-auto p-4 max-w-2xl">
+    <h1 class="text-2xl font-bold text-center mb-6">Hydraloop Upfall Shower Savings Calculator</h1>
+    <div class="bg-white p-6 rounded-lg shadow-md">
+      <form id="savingsForm" class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700">Number of people in the home</label>
+          <input type="number" id="people" value="4" min="1" step="1" class="mt-1">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700">Showers per person per day</label>
+          <input type="number" id="showersPerDay" value="1" min="0" step="0.1" class="mt-1">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700">Average shower length (minutes)</label>
+          <input type="number" id="showerLength" value="10" min="1" step="0.1" class="mt-1">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700">Electricity rate (€/kWh)</label>
+          <input type="number" id="electricityRate" value="0.29" min="0" step="0.01" class="mt-1">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700">Water rate (€/1,000 liters)</label>
+          <input type="number" id="waterRate" value="1.72" min="0" step="0.01" class="mt-1">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700">Water heating system</label>
+          <select id="heatingSystem" class="mt-1">
+            <option value="electric">Electric boiler</option>
+            <option value="heatpump">Heat pump boiler</option>
+            <option value="gas">Gas boiler</option>
+            <option value="solar">Solar panels</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700">Standard showerhead flow rate (liters/minute)</label>
+          <input type="number" id="showerFlow" value="10" min="1" step="0.1" class="mt-1">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700">Average water price increase (% per year)</label>
+          <input type="number" id="waterPriceIncrease" value="7" min="0" step="0.1" class="mt-1">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700">Average energy price increase (% per year)</label>
+          <input type="number" id="energyPriceIncrease" value="9" min="0" step="0.1" class="mt-1">
+        </div>
+        <button type="button" onclick="calculateSavings()" class="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700">
+          Calculate Savings
+        </button>
+      </form>
+      <div id="results" class="mt-6 hidden">
+        <h2 class="text-lg font-semibold">Savings Results</h2>
+        <p id="standardCost" class="mt-2"></p>
+        <p id="upfallCost" class="mt-2"></p>
+        <p id="savings2025" class="mt-2"></p>
+        <p id="averageSavings" class="mt-2 font-bold"></p>
+        <p id="paybackTime" class="mt-2"></p>
+        <p id="boilerSize" class="mt-2"></p>
+      </div>
+    </div>
+    <p class="text-center text-sm text-gray-600 mt-4">
+      <strong>Disclaimer</strong>: The estimated savings and boiler size are based on assumptions for a household in the Netherlands. Actual savings may vary due to usage, regional prices, installation costs, or other factors. Visit our website for full details.
+    </p>
+  </div>
+
+  <script>
+    function calculateSavings() {
+      // Get input values
+      const people = parseFloat(document.getElementById('people').value) || 4;
+      const showersPerDay = parseFloat(document.getElementById('showersPerDay').value) || 1;
+      const showerLength = parseFloat(document.getElementById('showerLength').value) || 10;
+      const electricityRate = parseFloat(document.getElementById('electricityRate').value) || 0.29;
+      const waterRate = parseFloat(document.getElementById('waterRate').value) || 1.72;
+      const heatingSystem = document.getElementById('heatingSystem').value;
+      const showerFlow = parseFloat(document.getElementById('showerFlow').value) || 10;
+      const waterPriceIncrease = parseFloat(document.getElementById('waterPriceIncrease').value) / 100 || 0.07;
+      const energyPriceIncrease = parseFloat(document.getElementById('energyPriceIncrease').value) / 100 || 0.09;
+
+      // Constants
+      const daysPerYear = 365;
+      const specificHeatWater = 4.18; // kJ/kg/°C
+      const tempRise = 28; // °C (10°C to 38°C)
+      const kJPerLiter = specificHeatWater * tempRise; // 117.04 kJ/liter
+      const kJToKWh = 1 / 3600; // Convert kJ to kWh
+      const gasPrice = 1.45; // €/m³ (2025 estimate)
+      const kWhPerM3Gas = 9.77; // kWh equivalent per m³ of gas
+      const upfallCostPrice = 4995; // € including VAT
+      const hotWaterFraction = 0.56; // 56% of shower water from 60°C boiler
+
+      // Calculate annual showers and water usage
+      const totalShowers = people * showersPerDay * daysPerYear;
+      const totalMinutes = totalShowers * showerLength;
+
+      // Standard shower
+      const standardWaterLiters = totalMinutes * showerFlow;
+      const standardWaterM3 = standardWaterLiters / 1000;
+      const standardEnergyKJ = standardWaterLiters * kJPerLiter;
+      let standardEnergyKWh = standardEnergyKJ * kJToKWh;
+
+      // Upfall shower
+      const upfallWaterPerShower = 8 + Math.max(0, showerLength - 1) * 3; // 8L first minute, 3L/min after
+      const upfallWaterLiters = totalShowers * upfallWaterPerShower;
+      const upfallWaterM3 = upfallWaterLiters / 1000;
+      const upfallEnergyKJ = upfallWaterLiters * kJPerLiter;
+      let upfallEnergyKWh = upfallEnergyKJ * kJToKWh;
+
+      // Adjust energy based on heating system
+      let standardEnergyCost, upfallEnergyCost, energyPrice = electricityRate;
+      if (heatingSystem === 'electric') {
+        standardEnergyKWh /= 0.9; // 90% efficiency
+        upfallEnergyKWh /= 0.9;
+        standardEnergyCost = standardEnergyKWh * electricityRate;
+        upfallEnergyCost = upfallEnergyKWh * electricityRate;
+      } else if (heatingSystem === 'heatpump') {
+        standardEnergyKWh /= (0.9 * 3.5); // COP 3.5
+        upfallEnergyKWh /= (0.9 * 3.5);
+        standardEnergyCost = standardEnergyKWh * electricityRate;
+        upfallEnergyCost = upfallEnergyKWh * electricityRate;
+      } else if (heatingSystem === 'gas') {
+        standardEnergyKWh /= 0.85; // 85% efficiency
+        upfallEnergyKWh /= 0.85;
+        const standardGasM3 = standardEnergyKWh / kWhPerM3Gas;
+        const upfallGasM3 = upfallEnergyKWh / kWhPerM3Gas;
+        standardEnergyCost = standardGasM3 * gasPrice;
+        upfallEnergyCost = upfallGasM3 * gasPrice;
+        energyPrice = gasPrice / kWhPerM3Gas; // Convert to €/kWh for price increase
+      } else if (heatingSystem === 'solar') {
+        standardEnergyKWh = (standardEnergyKWh * 0.4) / 0.9; // 60% free, 40% electric (winter-adjusted)
+        upfallEnergyKWh = (upfallEnergyKWh * 0.4) / 0.9;
+        standardEnergyCost = standardEnergyKWh * electricityRate;
+        upfallEnergyCost = upfallEnergyKWh * electricityRate;
+      }
+
+      // Calculate 2025 costs
+      const standardWaterCost = standardWaterM3 * (waterRate / 1000);
+      const upfallWaterCost = upfallWaterM3 * (waterRate / 1000);
+      const standardTotalCost2025 = standardWaterCost + standardEnergyCost;
+      const upfallTotalCost2025 = upfallWaterCost + upfallEnergyCost;
+      const savings2025 = standardTotalCost2025 - upfallTotalCost2025;
+
+      // Calculate average savings over 10 years
+      let totalSavings = 0;
+      for (let year = 0; year < 10; year++) {
+        const waterPrice = (waterRate / 1000) * Math.pow(1 + waterPriceIncrease, year);
+        const currentEnergyPrice = energyPrice * Math.pow(1 + energyPriceIncrease, year);
+        const standardCost = (standardWaterM3 * waterPrice) + (standardEnergyKWh * currentEnergyPrice);
+        const upfallCost = (upfallWaterM3 * waterPrice) + (upfallEnergyKWh * currentEnergyPrice);
+        totalSavings += standardCost - upfallCost;
+      }
+      const averageSavings = totalSavings / 10;
+
+      // Calculate payback time
+      const paybackTime = averageSavings > 0 ? upfallCostPrice / averageSavings : Infinity;
+
+      // Calculate required boiler size (Upfall shower only)
+      const upfallHotWaterLiters = upfallWaterLiters * hotWaterFraction; // 56% of shower water
+      const dailyHotWaterDemand = upfallHotWaterLiters / daysPerYear; // Liters per day
+      const boilerSize = Math.ceil(dailyHotWaterDemand / 10) * 10; // Round up to nearest 10L
+
+      // Display results
+      document.getElementById('standardCost').textContent = `Standard Shower Cost (2025): €${standardTotalCost2025.toFixed(2)}/year`;
+      document.getElementById('upfallCost').textContent = `Upfall Shower Cost (2025): €${upfallTotalCost2025.toFixed(2)}/year`;
+      document.getElementById('savings2025').textContent = `Savings in 2025: €${savings2025.toFixed(2)}/year`;
+      document.getElementById('averageSavings').textContent = `Average Annual Savings (2025–2034): €${averageSavings.toFixed(2)}/year`;
+      document.getElementById('paybackTime').textContent = `Payback Time: ${paybackTime === Infinity ? 'N/A' : paybackTime.toFixed(2) + ' years'}`;
+      document.getElementById('boilerSize').textContent = `Required Boiler Size (Upfall Shower): ${boilerSize} liters`;
+      document.getElementById('results').classList.remove('hidden');
+    }
+  </script>
+</body>
+</html>
